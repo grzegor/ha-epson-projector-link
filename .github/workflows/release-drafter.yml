@@ -1,15 +1,10 @@
-name: Draft a release note
+name: Automatic release drafting disabled in fork
 on:
-  push:
-    branches:
-      - main
-      - master
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  draft_release:
-    name: Release Drafter
+  notice:
     runs-on: ubuntu-latest
     steps:
-      - name: Run release-drafter
-        uses: release-drafter/release-drafter@v7.10.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "This experimental fork does not run automatic release drafting."

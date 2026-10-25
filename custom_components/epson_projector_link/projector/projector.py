@@ -1,10 +1,11 @@
-"""TCP connection of Epson projector module."""
+"""ESC/VP.net or raw serial-proxy TCP connection for Epson projectors."""
 
 import asyncio
 import binascii
 from collections import deque
 import inspect
 import logging
+from urllib.parse import urlsplit
 
 import async_timeout
 from homeassistant.const import STATE_UNKNOWN
@@ -101,8 +102,28 @@ class Projector:
         :param str host:            IP address of Projector
         :param int port:            Port to connect to
         """
-        self._host = host
-        self._port = port
+        self._raw_tcp = host.startswith("socket://")
+        if self._raw_tcp:
+            endpoint = urlsplit(host)
+            if (
+                not endpoint.hostname
+                or endpoint.port is None
+                or endpoint.port < 1
+                or endpoint.username is not None
+                or endpoint.password is not None
+                or endpoint.path not in ("", "/")
+                or endpoint.query
+                or endpoint.fragment
+            ):
+                raise ValueError("Use socket://host:port for a raw serial proxy")
+            self._host = endpoint.hostname
+            self._port = endpoint.port
+        else:
+            if "://" in host:
+                raise ValueError("Unsupported projector connection scheme")
+            self._host = host
+            self._port = port
+        self._connect_lock = asyncio.Lock()
         self._is_open = False
         self._has_errors = False
         self._serial = None
@@ -120,20 +141,43 @@ class Projector:
 
     async def connect(self):
         """Async init to open connection with projector."""
+        async with self._connect_lock:
+            if not self._is_open:
+                await self._open_connection()
+
+    async def _open_connection(self):
+        """Open either Epson ESC/VP.net or a raw serial TCP proxy."""
         _LOGGER.debug("connect")
         response = None
+        writer = None
         try:
-            with async_timeout.timeout(TIMEOUT_CONNECT):
+            async with async_timeout.timeout(TIMEOUT_CONNECT):
                 reader, writer = await asyncio.open_connection(
                     host=self._host, port=self._port
                 )
-                writer.write(ESCVPNET_CONNECT_COMMAND.encode())
-                response = await reader.read(16)
-        except asyncio.TimeoutError:
-            _LOGGER.exception("connect: Opening connection timed out")
-            raise
-        except ConnectionRefusedError:
-            _LOGGER.exception("connect: Connection refused")
+                if self._raw_tcp:
+                    writer.write(b"\r")
+                    await writer.drain()
+                    response = await reader.readuntil(b":")
+                    if response.strip(b"\r\n") != b":":
+                        raise ValueError("Serial proxy did not return an Epson prompt")
+                else:
+                    writer.write(ESCVPNET_CONNECT_COMMAND.encode())
+                    await writer.drain()
+                    response = await reader.readexactly(16)
+
+                    if response[0:10].decode() != ESCVPNETNAME:
+                        raise ValueError("Unsupported connect response format.")
+                    status_code = response[14]
+                    if status_code != STATUS_OK:
+                        status = STATUS_CODE_MAP.get(status_code, status_code)
+                        raise ValueError(
+                            f"Connect response returned error status={status}"
+                        )
+        except BaseException:
+            if writer is not None:
+                writer.close()
+                await writer.wait_closed()
             raise
 
         _LOGGER.debug(
@@ -142,24 +186,6 @@ class Projector:
             binascii.hexlify(response),
             len(response),
         )
-        if len(response) < 16 or response[0:10].decode() != ESCVPNETNAME:
-            raise Exception("Unsupported connect response format.")
-
-        # message format https://support.atlona.com/hc/en-us/articles/360048888054-IP-Control-of-Epson-Projectors
-        # byte 10 is the version
-        # byte 11 is the type (TYPE_CONNECT)
-        # bytes 12 and 13 are the seq no of the message
-        status_code = response[14]
-        status = STATUS_CODE_MAP.get(status_code, status_code)
-        header_count = response[15]
-        _LOGGER.debug(
-            "connect: status=%s, header_count=%d",
-            status,
-            header_count,
-        )
-        if status_code != STATUS_OK:
-            raise Exception(f"Connect response returned error status={status}")
-
         self._is_open = True
         self._reader = reader
         self._writer = writer
@@ -237,7 +263,7 @@ class Projector:
                         '_send_request: command="%s" waiting for power state change future',
                         request.command,
                     )
-                    with async_timeout.timeout(TIMEOUT_POWER_ON_OFF):
+                    async with async_timeout.timeout(TIMEOUT_POWER_ON_OFF):
                         await self._power_on_off_future
                 except asyncio.TimeoutError as err:
                     _LOGGER.warning(
@@ -260,7 +286,7 @@ class Projector:
                 '_send_request: command="%s" sending request',
                 request.command,
             )
-            with async_timeout.timeout(
+            async with async_timeout.timeout(
                 TIMEOUT_POWER_ON_OFF if is_power_request else TIMEOUT_REQUEST
             ):
                 self._writer.write(f"{request.command}\r".encode())
@@ -328,6 +354,14 @@ class Projector:
             _LOGGER.warning("_listen: Unhandled response %s", response)
 
         _LOGGER.info("_listen: Connection ended")
+        # A serial proxy may disconnect independently of the projector. Release
+        # the previous stream before opening its replacement.
+        if self._writer is not None:
+            self._writer.close()
+            try:
+                await self._writer.wait_closed()
+            except OSError:
+                pass
 
         # Try to-reopen connection, if it was not an explicit close.
         # Explicit close will set _is_open to False.

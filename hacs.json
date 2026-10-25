@@ -1,5 +1,5 @@
 {
-  "name": "Epson Projector Link",
+  "name": "Epson Projector Link (serial fork)",
   "hacs": "1.6.0",
   "homeassistant": "2024.6.0",
   "render_readme": true

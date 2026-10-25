@@ -39,11 +39,12 @@ def _create_options_schema(user_input, is_config):
     if user_input is None:
         user_input = {}
 
-    schema = {}
+    schema = {
+        vol.Required(CONF_HOST, default=user_input.get(CONF_HOST, "")): str,
+    }
     if is_config:
         schema.update(
             {
-                vol.Required(CONF_HOST, default=user_input.get(CONF_HOST, "")): str,
                 vol.Required(CONF_NAME, default=user_input.get(CONF_NAME, DOMAIN)): str,
             }
         )
@@ -72,7 +73,7 @@ async def _async_get_property(projector, property, errors={}):
     try:
         return await projector.get_property(property)
     except ProjectorErrorResponse as e:
-        attribute_name = PROPERTY_TO_ATTRIBUTE_NAME_MAP[property]
+        attribute_name = PROPERTY_TO_ATTRIBUTE_NAME_MAP.get(property)
         if attribute_name:
             errors["base"] = f"property_error_{attribute_name}"
         else:
@@ -154,6 +155,7 @@ class EpsonProjectorLinkOptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize."""
         self._original_data = dict(config_entry.data)
         self._data = dict(config_entry.data)
+        self._unique_id = config_entry.unique_id
 
     async def async_step_init(self, user_input=None):
         """Manage Options."""
@@ -164,11 +166,32 @@ class EpsonProjectorLinkOptionsFlowHandler(config_entries.OptionsFlow):
             # Validate additional properties
             old_properties = self._original_data.get(CONF_POLL_PROPERTIES)
             new_properties = self._data.get(CONF_POLL_PROPERTIES)
-            if new_properties != old_properties:
-                projector = create_projector(self._data)
-                await _async_validate_additional_properties(
-                    projector, user_input.get(CONF_POLL_PROPERTIES), errors
-                )
+            changed_host = self._data.get(CONF_HOST) != self._original_data.get(
+                CONF_HOST
+            )
+            if new_properties != old_properties or changed_host:
+                projector = None
+                try:
+                    projector = create_projector(self._data)
+                    if changed_host:
+                        serial_no = await _async_get_property(
+                            projector, PROPERTY_SERIAL_NUMBER, errors
+                        )
+                        if (
+                            not errors
+                            and self._unique_id
+                            and serial_no != self._unique_id
+                        ):
+                            errors["base"] = "wrong_projector"
+                    if not errors:
+                        await _async_validate_additional_properties(
+                            projector, new_properties, errors
+                        )
+                except ValueError:
+                    errors["base"] = "cannot_connect"
+                finally:
+                    if projector is not None:
+                        projector.close()
 
             if len(errors) == 0:
                 return self.async_create_entry(title="", data=self._data)

@@ -1,20 +1,10 @@
-name: Manage labels
-
+name: Automatic labeling disabled in fork
 on:
-  push:
-    branches:
-      - main
-      - master
-
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  labeler:
-    name: Labeler
+  notice:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out the repository
-        uses: actions/checkout@v6
-
-      - name: Run Labeler
-        uses: crazy-max/ghaction-github-labeler@v6.0.0
-        with:
-          skip-delete: true
+      - run: echo "This experimental fork does not run automatic labeling."

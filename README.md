@@ -1,153 +1,64 @@
-# Espon Projector Link
+# Epson Projector Link — serial-proxy fork
 
-[![GitHub Release][releases-shield]][releases]
-[![GitHub Activity][commits-shield]][commits]
-[![License][license-shield]](LICENSE)
+This is a fork of [amosyuen/ha-epson-projector-link](https://github.com/amosyuen/ha-epson-projector-link), based on upstream commit `18f1b79c7b8b3c22d00b95de9e7bc0b266d86636` (integration version 1.2.3). The original integration and its authors retain their credit. The Apache-2.0 [LICENSE](LICENSE) is unchanged.
 
-[![pre-commit][pre-commit-shield]][pre-commit]
-[![Black][black-shield]][black]
+## Read this first
 
-[![hacs][hacsbadge]][hacs]
-[![Project Maintenance][maintenance-shield]][user_profile]
-[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
+**The changes in this fork are 100% AI-generated / “vibecoded”, without human code review or anyone committing to ongoing maintenance.** Automated tests are included, but they are not a substitute for human review or a promise of reliability.
 
-[![Community Forum][forum-shield]][forum]
+**These changes are not being submitted upstream to the original maintainer for that reason.** The original maintainer does not review, support or maintain this fork. This repository is an experimental personal fork, not an official upstream release.
 
-## Functionality
+## Why this fork exists
 
-The platform allows you to control an Epson projector from Home Assistant.
+Upstream opens an Epson ESC/VP.net network connection. A USB-to-RS-232 adapter attached to a serial device server instead carries plain ESC/VP21 commands over TCP, so the network handshake does not work there.
 
-This custom component is designed for Epson Home Cinema Projectors which support TCP sockets. It should work with any Epson projector that supports TCP sockets and ESC/VP21 command protocol. However projectors may not support all the features.
+This fork adds explicit `socket://host:port` support while keeping the integration's command queue, warmup/cooldown handling, existing entity domain and custom actions. Its purpose is to use a projector's RS-232 connection when its own network interface is slow to return after a power cycle. Startup timing and standby behavior remain dependent on the projector and have not been guaranteed by the software tests.
 
-### Supported Features
+Bare hostnames/IP addresses continue to use the original ESC/VP.net transport. This fork does not add USB/IP, local USB-device forwarding or RFC2217 configuration. Set baud rate, framing and flow control on the serial server itself.
 
-- Get and set state (on, off, warmup, cooldown)
-- Get source list
-- Get and set source
-- Get and set audio mute
-- Get and set auto iris mode
-- Get and set brightness
-- Get and set color mode
-- Get filter hours
-- Get lamp hours
-- Get current error
-- Increase or decrease volume
-- Play, pause, or stop media
-- Next or previous media
+## Install with HACS
 
-All the get features will be exposed as attributes on the `media_player`. Changes are exposed as services. See service documentation at https://github.com/amosyuen/ha-epson-projector-link/blob/main/custom_components/epson_projector_link/services.yaml
+1. Back up the existing integration and its configuration.
+2. In HACS, add `https://github.com/grzegor/ha-epson-projector-link` as a custom **Integration** repository.
+3. If upstream is already installed, replace its HACS installation with this fork. Both use the `epson_projector_link` domain and must not be installed as separate integrations at the same time. Keep the existing Home Assistant integration entry and entity registry.
+4. Download a tagged fork release and restart Home Assistant.
+5. Open the existing Epson Projector Link entry's options. Set Host to the serial proxy URL, for example `socket://192.0.2.10:1234`.
+6. Set the power-state polling interval to about **5 seconds**. Serial proxies are not assumed to deliver the network power notifications. Additional-property polling remains separately configurable.
 
-### Differences from HA Epson Integration
+When changing an existing connection, the options flow verifies the projector's serial number and refuses a different projector. Turn the projector on while configuring or validating additional properties. A failed validation is not saved.
 
-As of September 2022, the main differences with the built in [Home Assistant Epson Integration](https://www.home-assistant.io/integrations/epson/) are:
+HACS must track this fork rather than upstream. Installing upstream over this fork removes serial-proxy support; the serial URL would then stop working. Update only from this repository's published releases. There is no automatic upstream merge or dependency-update maintenance in this fork.
 
-#### PROS
+## Preserved functionality
 
-- Supports push for power state changes
-- Support "warmup" and "cooldown" state for projectors
-- Queues requests rather than failing if there is an in-flight request
-- Supports lens memory
-- Supports picture memory
-- Supports auto iris mode
-- Supports brightness
-- Supports power consumption mode
-- Supports source list retrieved from projector instead of static list
-- Supports stop media
+The `epson_projector_link` domain, configured unique IDs, entities and existing actions remain the same. Supported capabilities depend on the projector:
 
-#### CONS
+- Power, warmup and cooldown state, with serialized commands.
+- Input, color mode, brightness, audio and power-consumption controls.
+- Lens/picture memory and optional lamp-hour/error attributes.
+- `epson_projector_link.send_command` for ESC/VP21 commands.
 
-- Only supports TCP sockets. The HA Epson integration uses HTTP. Developer has mentioned that not all projectors support TCP.
+Serial settings belong to the device server. Typical Epson RS-232 settings are 9600 baud, 8 data bits, no parity, one stop bit and no flow control; check the particular projector.
 
-{% if not installed %}
+## Development and tests
 
-## Installation
+The fork's additional regression tests use simulated raw serial proxies and ESC/VP.net servers. They cover fragmented replies, concurrency, queue recovery, invalid prompts, timeouts, reconnects, power-command acknowledgement, endpoint validation and wrong-projector protection. Fake endpoints never operate physical equipment.
 
-### HACS
+Use Python 3.14 with the requirements in `requirements.txt`, then run:
 
-1. Install [HACS](https://hacs.xyz/)
-2. Go to HACS "Integrations >" section
-3. In the lower right click "+ Explore & Download repositories"
-4. Search for "Epson Projector Link" and add it
-   - HA Restart is not needed since it is configured in UI config flow
-5. In the Home Assistant (HA) UI go to "Configuration"
-6. Click "Integrations"
-7. Click "+ Add Integration"
-8. Search for "Epson Projector Link"
-
-### Manual
-
-1. Using the tool of choice open the directory (folder) for your [HA configuration](https://www.home-assistant.io/docs/configuration/) (where you find `configuration.yaml`).
-2. If you do not have a `custom_components` directory (folder) there, you need to create it.
-3. In the `custom_components` directory (folder) create a new folder called `epson_projector_link`.
-4. Download _all_ the files from the `custom_components/epson_projector_link/` directory (folder) in this repository.
-5. Place the files you downloaded in the new directory (folder) you created.
-6. Restart Home Assistant
-7. In the Home Assistant (HA) UI go to "Configuration"
-8. Click "Integrations"
-9. Click "+ Add Integration"
-10. Search for "Epson Projector Link"
-
-{% endif %}
-
-## Configuration
-
-Config is done in the HA integrations UI.
-
-Make sure the projector is on if you have not setup your projector to keep network on or are choosing additional properties to poll. Additional properties can only be polled when the projector is on.
-
-### Push State
-
-If you want to get push notifications for power state, you must set projector "Standby Mode" to "Standby Mode: Communication On" or some similar state that keeps the network on when off.
-
-Only power state, warnings, and alerts are pushed. All other properties are polled.
-
-### Setup
-
-## Tested Devices
-
-- Epson Home Cinema 5050UB
-
-## Custom Actions
-
-You can send custom actions using the `epson_projector_link.send_command` action. Example action:
-
-```
-action: epson_projector_link.send_command
-data:
-  command: PWR ON
-target:
-  entity_id: media_player.theater_projector
+```sh
+python -m unittest discover -s tests -v
+black --check custom_components tests
+isort --check-only custom_components tests
+flake8 custom_components tests
 ```
 
-## Contributions are welcome!
+GitHub Actions also runs HACS and Hassfest checks. Passing automation does not establish long-term stability, mains-cycle recovery, standby wake or compatibility with every serial server.
 
-If you want to contribute to this please read the [Contribution guidelines](https://github.com/amosyuen/ha-epson-projector-link/blob/master/CONTRIBUTING.md)
+## Rollback
 
-## Credits
+Keep a backup of the original integration and config entry. Before returning to upstream, restore the projector's original network address and suitable polling settings. Replace the fork with the upstream HACS repository, restart Home Assistant and verify the existing entity and custom actions. Do not replace the full Home Assistant config-entry registry with an older snapshot.
 
-Referred to @pszafer's implementation of epson component https://github.com/pszafer/epson_projector
+## Provenance
 
-This project was generated from [@oncleben31](https://github.com/oncleben31)'s [Home Assistant Custom Component Cookiecutter](https://github.com/oncleben31/cookiecutter-homeassistant-custom-component) template.
-
-Code template was mainly taken from [@Ludeeus](https://github.com/ludeeus)'s [integration_blueprint][integration_blueprint] template
-
----
-
-[integration_blueprint]: https://github.com/custom-components/integration_blueprint
-[black]: https://github.com/psf/black
-[black-shield]: https://img.shields.io/badge/code%20style-black-000000.svg?style=for-the-badge
-[buymecoffee]: https://paypal.me/amosyuen
-[buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge
-[commits-shield]: https://img.shields.io/github/commit-activity/y/amosyuen/ha-epson-projector-link.svg?style=for-the-badge
-[commits]: https://github.com/amosyuen/ha-epson-projector-link/commits/main
-[hacs]: https://hacs.xyz
-[hacsbadge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge
-[forum-shield]: https://img.shields.io/badge/community-forum-brightgreen.svg?style=for-the-badge
-[forum]: https://community.home-assistant.io/
-[license-shield]: https://img.shields.io/github/license/amosyuen/ha-epson-projector-link.svg?style=for-the-badge
-[maintenance-shield]: https://img.shields.io/badge/maintainer-%40amosyuen-blue.svg?style=for-the-badge
-[pre-commit]: https://github.com/pre-commit/pre-commit
-[pre-commit-shield]: https://img.shields.io/badge/pre--commit-enabled-brightgreen?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/amosyuen/ha-epson-projector-link.svg?style=for-the-badge
-[releases]: https://github.com/amosyuen/ha-epson-projector-link/releases
-[user_profile]: https://github.com/amosyuen
+Original project: [amosyuen/ha-epson-projector-link](https://github.com/amosyuen/ha-epson-projector-link). The upstream README credits [pszafer/epson_projector](https://github.com/pszafer/epson_projector), the [Home Assistant custom-component cookiecutter](https://github.com/oncleben31/cookiecutter-homeassistant-custom-component) and [integration_blueprint](https://github.com/custom-components/integration_blueprint).

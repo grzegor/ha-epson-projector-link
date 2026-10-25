@@ -14,7 +14,7 @@
   },
   "config": {
     "error": {
-      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "cannot_connect": "Unable to connect to the projector.",
       "cannot_find_projector": "Unable to find the projector. Make sure the projector is turned on or has network enabled in standby mode.",
       "projector_off": "Projector is off. Please turn it on.",
       "property_error_auto_iris_mode": "Property \"Auto Iris Mode\" is not supported or projector is off.",
@@ -25,13 +25,14 @@
       "property_error_is_volume_muted": "Property \"Is Volume Muted\" is not supported or projector is off.",
       "property_error_power_consumption_mode": "Property \"Power Consumption Mode\" is not supported or projector is off.",
       "property_error_source": "Property \"Source\" is not supported or projector is off.",
-      "property_error_volume": "Property \"Volume\" is not supported or projector is off."
+      "property_error_volume": "Property \"Volume\" is not supported or projector is off.",
+      "wrong_projector": "This endpoint belongs to a different projector."
     },
     "step": {
       "user": {
-        "description": "Setup Epson Projector. **Make sure the projector is turned ON for setup if you are polling additional properties or have not enabled network in standby mode.**\n\nyou must set projector to keep network on when off. For Home Cinema projector set **\"Standby Mode\"** to **\"Standby Mode: Communication On\"**. Only power state is pushed. All other properties are polled serially.",
+        "description": "Enter the projector IP address for ESC/VP.net, or socket://host:port for a raw serial proxy. Serial settings are configured on the proxy. Use a short power polling interval (for example 5 seconds) for serial connections. Turn the projector on when changing the connection or polled properties.",
         "data": {
-          "host": "[%key:common::config_flow::data::host%]",
+          "host": "Projector host or socket://host:port serial proxy",
           "name": "[%key:common::config_flow::data::name%]",
           "scan_interval": "Scan interval in seconds for power state",
           "poll_properties": "Additional properties to poll",
@@ -50,15 +51,18 @@
       "property_error_is_volume_muted": "Property \"Is Volume Muted\" is not supported or projector is off.",
       "property_error_power_consumption_mode": "Property \"Power Consumption Mode\" is not supported or projector is off.",
       "property_error_source": "Property \"Source\" is not supported or projector is off.",
-      "property_error_volume": "Property \"Volume\" is not supported or projector is off."
+      "property_error_volume": "Property \"Volume\" is not supported or projector is off.",
+      "wrong_projector": "This endpoint belongs to a different projector.",
+      "cannot_connect": "Unable to connect to the projector."
     },
     "step": {
       "init": {
-        "description": "Setup Epson Projector. **Make sure the projector is turned ON for setup if you are changing polled properties.**\n\nIf you want to get push notifications for power state, you must set projector to keep network on when off. For Home Cinema projector set **\"Standby Mode\"** to **\"Standby Mode: Communication On\"**. Only power state is pushed. All other properties are polled serially.",
+        "description": "Enter the projector IP address for ESC/VP.net, or socket://host:port for a raw serial proxy. Serial settings are configured on the proxy. Use a short power polling interval (for example 5 seconds) for serial connections. Turn the projector on when changing the connection or polled properties.",
         "data": {
           "scan_interval": "Scan interval in seconds for power state",
           "poll_properties": "Additional properties to poll",
-          "poll_properties_scan_interval": "Scan interval in seconds for additional properties"
+          "poll_properties_scan_interval": "Scan interval in seconds for additional properties",
+          "host": "Projector host or socket://host:port serial proxy"
         }
       }
     }

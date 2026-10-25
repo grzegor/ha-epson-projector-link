@@ -1,23 +1,10 @@
-name: Dependabot auto-merge
-on: pull_request
-
+name: Automatic dependency merging disabled in fork
+on:
+  workflow_dispatch:
 permissions:
-  contents: write
-  pull-requests: write
-
+  contents: read
 jobs:
-  dependabot:
+  notice:
     runs-on: ubuntu-latest
-    if: ${{ github.actor == 'dependabot[bot]' }}
     steps:
-      - name: Dependabot metadata
-        id: metadata
-        uses: dependabot/fetch-metadata@v3.1.0
-        with:
-          github-token: "${{ secrets.GITHUB_TOKEN }}"
-      - name: Enable auto-merge for Dependabot PRs
-        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
-        run: gh pr merge --auto --merge "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "This experimental fork does not run automatic dependency merging."

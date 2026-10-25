@@ -280,6 +280,11 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
             callback()
         self._unregister_callbacks.clear()
 
+    async def async_will_remove_from_hass(self):
+        """Stop this entity's polling when the connection is reconfigured."""
+        self.unload()
+        await super().async_will_remove_from_hass()
+
     async def async_update(self):
         """Update state."""
         _LOGGER.debug("async_update: unique_id=%s", self._config_entry.unique_id)

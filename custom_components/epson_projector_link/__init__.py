@@ -64,5 +64,6 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         )
     )
     if unloaded:
-        hass.data[DOMAIN].pop(config_entry.entry_id)
+        projector = hass.data[DOMAIN].pop(config_entry.entry_id)
+        projector.close()
     return unloaded
