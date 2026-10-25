@@ -355,6 +355,21 @@ class OptionsTests(unittest.IsolatedAsyncioTestCase):
         validated = form["data_schema"]({"host": "socket://example.invalid:1234"})
         self.assertEqual(validated["host"], "socket://example.invalid:1234")
 
+    async def test_new_controls_validate_on_existing_queue_without_second_socket(self):
+        client = SimpleNamespace(
+            get_property=AsyncMock(side_effect=["on", "Cinema", 126]), close=Mock()
+        )
+        flow = self.flow()
+        flow._entry_id = "loaded-entry"
+        flow.hass = SimpleNamespace(data={flow_module.DOMAIN: {"loaded-entry": client}})
+        with patch.object(flow_module, "create_projector") as create:
+            result = await flow.async_step_init(
+                {"poll_properties": ["CMODE", "BRIGHT"]}
+            )
+        self.assertEqual(result["type"], "create_entry")
+        create.assert_not_called()
+        client.close.assert_not_called()
+
     async def test_wrong_projector_refused_and_probe_closed(self):
         client = SimpleNamespace(
             get_property=AsyncMock(return_value="wrong-serial"), close=Mock()

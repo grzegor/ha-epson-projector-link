@@ -182,6 +182,7 @@ class EpsonProjectorLinkOptionsFlowHandler(config_entries.OptionsFlow):
         self._original_data = dict(config_entry.data)
         self._data = dict(config_entry.data)
         self._unique_id = config_entry.unique_id
+        self._entry_id = getattr(config_entry, "entry_id", None)
 
     async def async_step_init(self, user_input=None):
         """Manage Options."""
@@ -206,8 +207,16 @@ class EpsonProjectorLinkOptionsFlowHandler(config_entries.OptionsFlow):
                 new_properties != old_properties or changed_host or changed_profile
             ):
                 projector = None
+                owns_probe = False
                 try:
-                    projector = create_projector(self._data)
+                    # Reuse the loaded queue when validating new controls on the
+                    # same serial endpoint. A second TCP client can consume or
+                    # interleave another client's RS-232 replies.
+                    if self._entry_id and not changed_host:
+                        projector = self.hass.data.get(DOMAIN, {}).get(self._entry_id)
+                    if projector is None:
+                        projector = create_projector(self._data)
+                        owns_probe = True
                     if changed_host:
                         serial_no = await _async_get_property(
                             projector, PROPERTY_SERIAL_NUMBER, errors
@@ -236,7 +245,7 @@ class EpsonProjectorLinkOptionsFlowHandler(config_entries.OptionsFlow):
                 except ValueError:
                     errors["base"] = "cannot_connect"
                 finally:
-                    if projector is not None:
+                    if projector is not None and owns_probe:
                         projector.close()
 
             if len(errors) == 0:
