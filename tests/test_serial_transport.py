@@ -1,6 +1,7 @@
 """Exercise the candidate using fake Epson endpoints in HA's installed Python."""
 
 import asyncio
+from datetime import timedelta
 import importlib
 import importlib.util
 from pathlib import Path
@@ -24,6 +25,7 @@ sys.modules[spec.name] = package
 spec.loader.exec_module(package)
 driver = importlib.import_module("epson_serial_candidate.projector.projector")
 flow_module = importlib.import_module("epson_serial_candidate.config_flow")
+entity_module = importlib.import_module("epson_serial_candidate.media_player")
 const = importlib.import_module("epson_serial_candidate.projector.const")
 
 
@@ -252,6 +254,53 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(address=address), self.assertRaises(ValueError):
                 driver.Projector(address)
+
+
+class AvailabilityTests(unittest.IsolatedAsyncioTestCase):
+    def entity(self, error):
+        projector = SimpleNamespace(
+            set_callback=Mock(), get_property=AsyncMock(side_effect=error)
+        )
+        unregister = Mock()
+        with patch.object(
+            entity_module, "async_track_time_interval", return_value=unregister
+        ):
+            entity = entity_module.EpsonProjectorMediaPlayer(
+                hass=SimpleNamespace(),
+                config_entry=SimpleNamespace(unique_id="existing-serial"),
+                projector=projector,
+                poll_properties=[],
+                scan_interval_power=timedelta(seconds=5),
+                scan_interval_properties=None,
+            )
+        entity.hass = SimpleNamespace()
+        entity._update_ha = Mock()
+        return entity, projector, unregister
+
+    async def test_refused_proxy_keeps_entity_available_for_later_polling(self):
+        entity, projector, unregister = self.entity(ConnectionRefusedError())
+        await entity.async_update()
+        self.assertFalse(entity.available)
+        entity._update_ha.assert_called_once()
+        projector.get_property.side_effect = None
+        projector.get_property.return_value = "on"
+        await entity.async_update()
+        entity._update_power("on")
+        self.assertTrue(entity.available)
+        self.assertEqual(entity.state, "on")
+        entity.unload()
+        unregister.assert_called_once()
+
+    async def test_timeout_marks_old_power_state_unavailable_and_schedules_retry(self):
+        entity, projector, unregister = self.entity(asyncio.TimeoutError())
+        entity._attr_state = "on"
+        entity._attr_available = True
+        with patch.object(entity_module, "async_call_later") as later:
+            await entity.async_update()
+        self.assertFalse(entity.available)
+        later.assert_called_once()
+        entity._update_ha.assert_called_once()
+        entity.unload()
 
 
 class OptionsTests(unittest.IsolatedAsyncioTestCase):

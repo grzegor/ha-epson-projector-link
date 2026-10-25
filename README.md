@@ -14,7 +14,7 @@ Upstream opens an Epson ESC/VP.net network connection. A USB-to-RS-232 adapter a
 
 This fork adds explicit `socket://host:port` support while keeping the integration's command queue, warmup/cooldown handling, existing entity domain and custom actions. Its purpose is to use a projector's RS-232 connection when its own network interface is slow to return after a power cycle. Startup timing and standby behavior remain dependent on the projector and have not been guaranteed by the software tests.
 
-Bare hostnames/IP addresses continue to use the original ESC/VP.net transport. This fork does not add USB/IP, local USB-device forwarding or RFC2217 configuration. Set baud rate, framing and flow control on the serial server itself.
+Bare hostnames/IP addresses continue to use the original ESC/VP.net transport. The entity remains registered when the endpoint is temporarily unreachable, so its power polling can recover without an integration reload. This fork does not add USB/IP, local USB-device forwarding or RFC2217 configuration. Set baud rate, framing and flow control on the serial server itself.
 
 ## Install with HACS
 
@@ -44,7 +44,7 @@ Serial settings belong to the device server. Typical Epson RS-232 settings are 9
 
 The fork's additional regression tests use simulated raw serial proxies and ESC/VP.net servers. They cover fragmented replies, concurrency, queue recovery, invalid prompts, timeouts, reconnects, power-command acknowledgement, endpoint validation and wrong-projector protection. Fake endpoints never operate physical equipment.
 
-Use Python 3.14 with the requirements in `requirements.txt`, then run:
+Use Python 3.14 with the requirements in `requirements_test.txt`, then run:
 
 ```sh
 python -m unittest discover -s tests -v

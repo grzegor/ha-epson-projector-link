@@ -298,13 +298,17 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
             self._attr_state = await self._projector.get_property(PROPERTY_POWER)
             return self._attr_state
         except asyncio.TimeoutError:
+            self._attr_available = False
+            self._update_ha()
             async_call_later(
                 self.hass, POWER_TIMEOUT_RETRY_INTERVAL, self._async_get_power_callback
             )
         except Exception as err:
             _LOGGER.debug("async_get_power: Error getting power error=%s", err)
             self._attr_available = False
-            raise
+            # Keep the entity registered if the proxy is unavailable at startup.
+            # Its configured polling can then reconnect without reloading HA.
+            self._update_ha()
 
     def _update_additional_attributes_callback(self, now):
         return self.update_additional_attributes()
