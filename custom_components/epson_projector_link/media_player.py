@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
+from homeassistant.core import SupportsResponse
 from homeassistant.helpers import entity_platform
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
@@ -33,7 +34,10 @@ from .const import SERVICE_SELECT_COLOR_MODE
 from .const import SERVICE_SELECT_POWER_CONSUMPTION_MODE
 from .const import SERVICE_SEND_COMMAND
 from .const import SERVICE_SET_BRIGHTNESS
+from .const import SERVICE_SET_SCREEN_BLANK
 from .const import STATE_ERROR
+from .controls import LS500_PROPERTIES
+from .controls import device_info
 from .projector.const import AUTO_IRIS_MODE_CODE_INVERTED_MAP
 from .projector.const import COLOR_MODE_CODE_INVERTED_MAP
 from .projector.const import COMMAND_LOAD_LENS_MEMORY
@@ -73,6 +77,7 @@ async def async_setup_entry(
     _LOGGER.debug("async_setup_entry: entry_id=%s", config_entry.entry_id)
     entry_id = config_entry.entry_id
     projector = hass.data[DOMAIN][entry_id]
+    controls = hass.data.get(f"{DOMAIN}_controls", {}).get(entry_id)
     scan_interval_power = _to_time_delta_seconds(config_entry.data[CONF_SCAN_INTERVAL])
     scan_interval_properties = _to_time_delta_seconds(
         config_entry.data[CONF_PROPERTIES_SCAN_INTERVAL]
@@ -81,9 +86,15 @@ async def async_setup_entry(
         hass=hass,
         config_entry=config_entry,
         projector=projector,
-        poll_properties=config_entry.data[CONF_POLL_PROPERTIES],
+        poll_properties=list(
+            dict.fromkeys(
+                config_entry.data[CONF_POLL_PROPERTIES]
+                + (LS500_PROPERTIES if controls else [])
+            )
+        ),
         scan_interval_power=scan_interval_power,
         scan_interval_properties=scan_interval_properties,
+        controls=controls,
     )
     async_add_entities([projector_entity], True)
 
@@ -143,15 +154,21 @@ def _setup_services():
         SERVICE_SEND_COMMAND,
         {vol.Required("command"): str},
         SERVICE_SEND_COMMAND,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     platform.async_register_entity_service(
         SERVICE_SET_BRIGHTNESS,
         {
             vol.Required(PROPERTY_TO_ATTRIBUTE_NAME_MAP[PROPERTY_BRIGHTNESS]): vol.All(
-                vol.Coerce(int), vol.Range(min=0, max=100)
+                vol.Coerce(int), vol.Range(min=0, max=255)
             )
         },
         SERVICE_SET_BRIGHTNESS,
+    )
+    platform.async_register_entity_service(
+        SERVICE_SET_SCREEN_BLANK,
+        {vol.Required("blank"): cv.boolean},
+        SERVICE_SET_SCREEN_BLANK,
     )
 
 
@@ -219,11 +236,13 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
         poll_properties,
         scan_interval_power,
         scan_interval_properties,
+        controls=None,
     ):
         """Initialize projector entity."""
         _LOGGER.debug("__init__: unique_id=%s", config_entry.unique_id)
         self._config_entry = config_entry
         self._projector = projector
+        self._controls = controls
         self._poll_properties = poll_properties
         self._power_poll_lock = asyncio.Lock()
 
@@ -234,6 +253,7 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
         }
         self._attr_should_poll = False  # We do our own polling based on config setting
         self._attr_source_list = None
+        self._attr_icon = "mdi:projector"
         self._attr_state = None
         self._attr_supported_features = _get_supported_features(poll_properties)
         self._attr_translation_key = "projector"
@@ -306,12 +326,16 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
             self._attr_state = await self._projector.get_property(PROPERTY_POWER)
             return self._attr_state
         except asyncio.TimeoutError:
+            if self._controls is not None:
+                self._controls.set_connected(False)
             self._attr_available = False
             self._update_ha()
             async_call_later(
                 self.hass, POWER_TIMEOUT_RETRY_INTERVAL, self._async_get_power_callback
             )
         except Exception as err:
+            if self._controls is not None:
+                self._controls.set_connected(False)
             _LOGGER.debug("async_get_power: Error getting power error=%s", err)
             self._attr_available = False
             # Keep the entity registered if the proxy is unavailable at startup.
@@ -323,14 +347,14 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
 
     def update_additional_attributes(self):
         """Poll additional attributes"""
-        if PROPERTY_SOURCE in self._poll_properties and self._attr_source_list is None:
-            self.hass.create_task(self.async_try_get_property(PROPERTY_SOURCE_LIST))
-
         if self._attr_available and self._attr_state == STATE_ON:
+            if (
+                PROPERTY_SOURCE in self._poll_properties
+                and self._attr_source_list is None
+            ):
+                self.hass.create_task(self.async_try_get_property(PROPERTY_SOURCE_LIST))
             for prop in self._poll_properties:
-                # Avoid double pulling the source list
-                if prop != PROPERTY_SOURCE:
-                    self.hass.create_task(self.async_try_get_property(prop))
+                self.hass.create_task(self.async_try_get_property(prop))
 
     async def async_try_get_property(self, prop):
         try:
@@ -345,16 +369,8 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
 
     @property
     def device_info(self):
-        """Get attributes about the device."""
-        if not self._attr_unique_id:
-            return None
-        return {
-            "identifiers": {(DOMAIN, self._attr_unique_id)},
-            "manufacturer": "Epson",
-            "name": "Epson Projector Home Cinema",
-            "model": "Epson",
-            "via_hub": (DOMAIN, self._attr_unique_id),
-        }
+        """Group controls using the existing serial identity."""
+        return device_info(self._config_entry)
 
     @property
     def name(self):
@@ -377,6 +393,7 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
         if source_code is None:
             source_code = source
         await self._projector.set_property(PROPERTY_SOURCE, source_code)
+        await self._projector.get_property(PROPERTY_SOURCE)
 
     async def async_set_volume_level(self, volume):
         await self._projector.set_property(PROPERTY_VOLUME, int(volume * 100))
@@ -438,6 +455,7 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
         await self._projector.set_property(
             PROPERTY_COLOR_MODE, COLOR_MODE_CODE_INVERTED_MAP[color_mode]
         )
+        await self._projector.get_property(PROPERTY_COLOR_MODE)
 
     async def select_power_consumption_mode(self, power_consumption_mode):
         await self._projector.set_property(
@@ -447,16 +465,24 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
 
     async def set_brightness(self, brightness):
         await self._projector.set_property(PROPERTY_BRIGHTNESS, brightness)
+        await self._projector.get_property(PROPERTY_BRIGHTNESS)
+
+    async def set_screen_blank(self, blank):
+        await self._projector.set_property(PROPERTY_MUTE, ON if blank else OFF)
+        await self._projector.get_property(PROPERTY_MUTE)
 
     async def send_command(self, command):
-        await self._projector.send_command(command)
+        return {"response": await self._projector.send_command(command)}
 
     def _callback(self, prop, value):
         if prop == PROPERTY_POWER:
             return self._update_power(value)
         if prop == PROPERTY_SOURCE_LIST:
             self._attr_source_list = value
+            self._update_ha()
             return
+        if prop == PROPERTY_SOURCE:
+            self._attr_source = value
 
         attribute_name = PROPERTY_TO_ATTRIBUTE_NAME_MAP.get(prop)
         if attribute_name is None:

@@ -128,6 +128,7 @@ class Projector:
         self._has_errors = False
         self._serial = None
         self._callback = None
+        self._listeners = set()
         self._power_state = None
         self._power_on_off_future = None
         self._request_queue = deque()
@@ -138,6 +139,11 @@ class Projector:
 
     def set_callback(self, callback):
         self._callback = callback
+
+    def add_callback(self, callback):
+        """Subscribe another observer to reported device properties."""
+        self._listeners.add(callback)
+        return lambda: self._listeners.discard(callback)
 
     async def connect(self):
         """Async init to open connection with projector."""
@@ -211,7 +217,7 @@ class Projector:
 
     async def set_property(self, prop, value):
         """Set property. Returns the set prop value."""
-        if not prop or not value:
+        if not prop or value is None:
             return
         return await self._send_request(Request(f"{prop} {value}", value))
 
@@ -496,6 +502,8 @@ class Projector:
                     self._update_property(PROPERTY_ERR, None)
         if self._callback:
             self._create_task(self._create_callback_task(self._callback, prop, value))
+        for callback in tuple(self._listeners):
+            self._create_task(self._create_callback_task(callback, prop, value))
 
     # Callback may not be async, so should wrap it in async function
     async def _create_callback_task(self, callback, prop, value):

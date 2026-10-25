@@ -5,6 +5,7 @@ from datetime import timedelta
 from .projector.const import PROPERTY_AUTO_IRIS_MODE
 from .projector.const import PROPERTY_BRIGHTNESS
 from .projector.const import PROPERTY_COLOR_MODE
+from .projector.const import PROPERTY_DYNAMIC_RANGE
 from .projector.const import PROPERTY_ERR
 from .projector.const import PROPERTY_LAMP_HOURS
 from .projector.const import PROPERTY_MUTE
@@ -16,6 +17,10 @@ DOMAIN = "epson_projector_link"
 
 CONF_POLL_PROPERTIES = "poll_properties"
 CONF_PROPERTIES_SCAN_INTERVAL = "poll_properties_scan_interval"
+CONF_MODEL = "model_profile"
+CONF_CONTROL_ACTION = "control_action"
+CONF_DELEGATED_PROPERTIES = "delegated_properties"
+CONF_HDR_AUTO_MODES = "hdr_auto_modes"
 
 DEFAULT_POWER_SCAN_INTERVAL = 600
 DEFAULT_PROPERTIES_SCAN_INTERVAL = 60
@@ -26,6 +31,7 @@ PROPERTY_TO_ATTRIBUTE_NAME_MAP = {
     PROPERTY_AUTO_IRIS_MODE: "auto_iris_mode",
     PROPERTY_BRIGHTNESS: "brightness",
     PROPERTY_COLOR_MODE: "color_mode",
+    PROPERTY_DYNAMIC_RANGE: "dynamic_range",
     PROPERTY_ERR: "error",
     PROPERTY_LAMP_HOURS: "lamp_hours",
     PROPERTY_MUTE: "is_volume_muted",
@@ -43,3 +49,4 @@ SERVICE_SELECT_COLOR_MODE = "select_color_mode"
 SERVICE_SELECT_POWER_CONSUMPTION_MODE = "select_power_consumption_mode"
 SERVICE_SEND_COMMAND = "send_command"
 SERVICE_SET_BRIGHTNESS = "set_brightness"
+SERVICE_SET_SCREEN_BLANK = "set_screen_blank"

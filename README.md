@@ -42,6 +42,29 @@ The `epson_projector_link` domain, configured unique IDs, entities and existing 
 
 Serial settings belong to the device server. Typical Epson RS-232 settings are 9600 baud, 8 data bits, no parity, one stop bit and no flow control; check the particular projector.
 
+## Native LS500 controls
+
+Choose the `ls500` model profile in the integration options to add:
+
+| Control                                     | Native Home Assistant entity            |
+| ------------------------------------------- | --------------------------------------- |
+| HDMI1, HDMI2, HDMI3 and LAN inputs          | Existing media player's source selector |
+| Cinema, Bright Cinema, Game, Dynamic        | Picture mode select                     |
+| Auto, SDR, HDR10, HLG                       | HDR mode select                         |
+| Picture brightness / black level            | Number slider, raw Epson scale 0–255    |
+| A/V screen blanking                         | Switch                                  |
+| Bright Cinema / Cinema shortcut             | Switch                                  |
+| Automatic HDR following actual picture mode | Switch                                  |
+| Light-source usage                          | Diagnostic sensor in hours              |
+
+All entities share the projector's existing serial identity and TCP connection. Polling and explicit readback update the controls from reported values. Picture brightness is **not laser output**. The LS500 command profile and ranges come from [Epson's LS500 control-code documentation](https://epson.com/Support/Projectors/LS-Series/Epson-LS500B/s/SPT_V11H956620).
+
+Configure which picture modes allow Auto HDR in the options. When the automatic HDR switch is on, those modes use Auto and the other known LS500 picture modes use SDR. Unknown modes and an off/unreachable projector cause no write. Selecting an HDR mode manually turns automatic HDR off and persists that choice across reloads/restarts. Enable the automatic switch to return to that policy. This affects projector dynamic range; it does not configure external HDMI devices or EDIDs.
+
+An optional control action can delegate picture, brightness and blanking requests to another controller. Select the delegated properties and supply a Home Assistant action sequence using the variables `property` (`CMODE`, `BRIGHT`, `MUTE`) and `value` (mode name, integer or boolean). Only explicit control requests run that action; feedback updates do not. Equal-value requests still run it, allowing a controller to cancel an in-flight opposite request. Existing low-level Epson actions remain direct transports so a controller can use them without recursion. No household controller IDs or scripts are bundled here.
+
+`epson_projector_link.send_command` optionally returns the parsed device reply when called with response data requested. Existing calls that do not request a response keep working.
+
 ## Development and tests
 
 The fork's additional regression tests use simulated raw serial proxies and ESC/VP.net servers. They cover fragmented replies, concurrency, queue recovery, invalid prompts, timeouts, reconnects, power-command acknowledgement, endpoint validation and wrong-projector protection. Fake endpoints never operate physical equipment.

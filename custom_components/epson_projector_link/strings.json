@@ -26,7 +26,9 @@
       "property_error_power_consumption_mode": "Property \"Power Consumption Mode\" is not supported or projector is off.",
       "property_error_source": "Property \"Source\" is not supported or projector is off.",
       "property_error_volume": "Property \"Volume\" is not supported or projector is off.",
-      "wrong_projector": "This endpoint belongs to a different projector."
+      "wrong_projector": "This endpoint belongs to a different projector.",
+      "missing_control_action": "Choose an action for delegated controls.",
+      "property_error_dynamic_range": "Dynamic range is unsupported or the projector is off."
     },
     "step": {
       "user": {
@@ -36,7 +38,11 @@
           "name": "[%key:common::config_flow::data::name%]",
           "scan_interval": "Scan interval in seconds for power state",
           "poll_properties": "Additional properties to poll",
-          "poll_properties_scan_interval": "Scan interval in seconds for additional properties"
+          "poll_properties_scan_interval": "Scan interval in seconds for additional properties",
+          "model_profile": "Projector model profile",
+          "hdr_auto_modes": "Picture modes that allow Auto HDR when automatic HDR is enabled",
+          "delegated_properties": "Controls to send through the action below",
+          "control_action": "Optional control action (variables: property and value)"
         }
       }
     }
@@ -53,7 +59,9 @@
       "property_error_source": "Property \"Source\" is not supported or projector is off.",
       "property_error_volume": "Property \"Volume\" is not supported or projector is off.",
       "wrong_projector": "This endpoint belongs to a different projector.",
-      "cannot_connect": "Unable to connect to the projector."
+      "cannot_connect": "Unable to connect to the projector.",
+      "missing_control_action": "Choose an action for delegated controls.",
+      "property_error_dynamic_range": "Dynamic range is unsupported or the projector is off."
     },
     "step": {
       "init": {
@@ -62,7 +70,11 @@
           "scan_interval": "Scan interval in seconds for power state",
           "poll_properties": "Additional properties to poll",
           "poll_properties_scan_interval": "Scan interval in seconds for additional properties",
-          "host": "Projector host or socket://host:port serial proxy"
+          "host": "Projector host or socket://host:port serial proxy",
+          "model_profile": "Projector model profile",
+          "hdr_auto_modes": "Picture modes that allow Auto HDR when automatic HDR is enabled",
+          "delegated_properties": "Controls to send through the action below",
+          "control_action": "Optional control action (variables: property and value)"
         }
       }
     }

@@ -8,10 +8,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 
+from .const import CONF_MODEL
 from .const import DOMAIN
+from .controls import EpsonControls
 from .projector import Projector
 
-PLATFORMS = [MEDIA_PLAYER_PLATFORM]
+PLATFORMS = [MEDIA_PLAYER_PLATFORM, "select", "number", "switch", "sensor"]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,6 +29,10 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     projector = create_projector(config_entry.data)
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][config_entry.entry_id] = projector
+    if config_entry.data.get(CONF_MODEL) == "ls500":
+        controls = EpsonControls(hass, config_entry, projector)
+        await controls.async_load()
+        hass.data.setdefault(f"{DOMAIN}_controls", {})[config_entry.entry_id] = controls
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
@@ -64,6 +70,11 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         )
     )
     if unloaded:
+        controls = hass.data.get(f"{DOMAIN}_controls", {}).pop(
+            config_entry.entry_id, None
+        )
+        if controls is not None:
+            controls.close()
         projector = hass.data[DOMAIN].pop(config_entry.entry_id)
         projector.close()
     return unloaded

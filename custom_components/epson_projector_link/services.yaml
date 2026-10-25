@@ -129,6 +129,20 @@ send_command:
       selector:
         text:
 
+set_screen_blank:
+  name: Set screen blanking
+  description: Set Epson A/V mute and read back the reported state.
+  target:
+    entity:
+      integration: epson_projector_link
+      domain: media_player
+  fields:
+    blank:
+      name: Blank screen
+      required: true
+      selector:
+        boolean:
+
 set_brightness:
   name: Set Brightness
   description: Set brightness of Epson projector

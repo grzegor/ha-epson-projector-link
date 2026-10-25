@@ -9,16 +9,23 @@ from homeassistant.const import CONF_NAME
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.const import STATE_ON
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 
 from . import create_projector
+from .const import CONF_CONTROL_ACTION
+from .const import CONF_DELEGATED_PROPERTIES
+from .const import CONF_HDR_AUTO_MODES
+from .const import CONF_MODEL
 from .const import CONF_POLL_PROPERTIES
 from .const import CONF_PROPERTIES_SCAN_INTERVAL
 from .const import DEFAULT_POWER_SCAN_INTERVAL
 from .const import DEFAULT_PROPERTIES_SCAN_INTERVAL
 from .const import DOMAIN
 from .const import PROPERTY_TO_ATTRIBUTE_NAME_MAP
+from .controls import LS500_COLOR_MODES
+from .controls import LS500_PROPERTIES
 from .projector.const import PROPERTY_POWER
 from .projector.const import PROPERTY_SERIAL_NUMBER
 from .projector.exceptions import ProjectorErrorResponse
@@ -51,6 +58,25 @@ def _create_options_schema(user_input, is_config):
 
     schema.update(
         {
+            vol.Optional(
+                CONF_MODEL, default=user_input.get(CONF_MODEL, "generic")
+            ): vol.In(["generic", "ls500"]),
+            vol.Optional(
+                CONF_HDR_AUTO_MODES, default=user_input.get(CONF_HDR_AUTO_MODES, [])
+            ): cv.multi_select({mode: mode for mode in LS500_COLOR_MODES}),
+            vol.Optional(
+                CONF_DELEGATED_PROPERTIES,
+                default=user_input.get(CONF_DELEGATED_PROPERTIES, []),
+            ): cv.multi_select(
+                {
+                    "CMODE": "Picture mode",
+                    "BRIGHT": "Picture brightness",
+                    "MUTE": "Screen blanking",
+                }
+            ),
+            vol.Optional(
+                CONF_CONTROL_ACTION, default=user_input.get(CONF_CONTROL_ACTION, [])
+            ): selector.ActionSelector(),
             vol.Optional(
                 CONF_SCAN_INTERVAL,
                 default=user_input.get(CONF_SCAN_INTERVAL, DEFAULT_POWER_SCAN_INTERVAL),
@@ -169,7 +195,16 @@ class EpsonProjectorLinkOptionsFlowHandler(config_entries.OptionsFlow):
             changed_host = self._data.get(CONF_HOST) != self._original_data.get(
                 CONF_HOST
             )
-            if new_properties != old_properties or changed_host:
+            changed_profile = self._data.get(CONF_MODEL) != self._original_data.get(
+                CONF_MODEL
+            )
+            if self._data.get(CONF_DELEGATED_PROPERTIES) and not self._data.get(
+                CONF_CONTROL_ACTION
+            ):
+                errors["base"] = "missing_control_action"
+            if not errors and (
+                new_properties != old_properties or changed_host or changed_profile
+            ):
                 projector = None
                 try:
                     projector = create_projector(self._data)
@@ -185,7 +220,18 @@ class EpsonProjectorLinkOptionsFlowHandler(config_entries.OptionsFlow):
                             errors["base"] = "wrong_projector"
                     if not errors:
                         await _async_validate_additional_properties(
-                            projector, new_properties, errors
+                            projector,
+                            list(
+                                dict.fromkeys(
+                                    (new_properties or [])
+                                    + (
+                                        LS500_PROPERTIES
+                                        if self._data.get(CONF_MODEL) == "ls500"
+                                        else []
+                                    )
+                                )
+                            ),
+                            errors,
                         )
                 except ValueError:
                     errors["base"] = "cannot_connect"
