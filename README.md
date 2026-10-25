@@ -16,6 +16,8 @@ This fork adds explicit `socket://host:port` support while keeping the integrati
 
 Bare hostnames/IP addresses continue to use the original ESC/VP.net transport. The entity remains registered when the endpoint is temporarily unreachable, so its power polling can recover without an integration reload. This fork does not add USB/IP, local USB-device forwarding or RFC2217 configuration. Set baud rate, framing and flow control on the serial server itself.
 
+On Home Assistant versions with Settings → Connectivity → Serial, the configured `socket://` endpoint appears with this integration as its consumer. The manifest declares the optional `usb` dependency so Home Assistant can attribute the configured connection using its native serial inventory. That page reports configuration ownership; it does not open a second connection or verify that the projector is responding. Bare ESC/VP.net hosts are not serial ports and do not appear there.
+
 ## Install with HACS
 
 1. Back up the existing integration and its configuration.
