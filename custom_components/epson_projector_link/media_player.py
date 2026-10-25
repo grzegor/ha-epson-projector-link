@@ -225,6 +225,7 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
         self._config_entry = config_entry
         self._projector = projector
         self._poll_properties = poll_properties
+        self._power_poll_lock = asyncio.Lock()
 
         self._attr_available = False
         self._attr_device_class = MediaPlayerDeviceClass.TV
@@ -294,6 +295,13 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
         return await self.async_get_power()
 
     async def async_get_power(self):
+        if self._power_poll_lock.locked():
+            return self._attr_state
+        async with self._power_poll_lock:
+            return await self._async_poll_power()
+
+    async def _async_poll_power(self):
+        """Run one bounded power query; timer ticks must not build a backlog."""
         try:
             self._attr_state = await self._projector.get_property(PROPERTY_POWER)
             return self._attr_state
@@ -318,7 +326,7 @@ class EpsonProjectorMediaPlayer(MediaPlayerEntity, RestoreEntity):
         if PROPERTY_SOURCE in self._poll_properties and self._attr_source_list is None:
             self.hass.create_task(self.async_try_get_property(PROPERTY_SOURCE_LIST))
 
-        if self._attr_state == STATE_ON:
+        if self._attr_available and self._attr_state == STATE_ON:
             for prop in self._poll_properties:
                 # Avoid double pulling the source list
                 if prop != PROPERTY_SOURCE:

@@ -302,6 +302,34 @@ class AvailabilityTests(unittest.IsolatedAsyncioTestCase):
         entity._update_ha.assert_called_once()
         entity.unload()
 
+    async def test_slow_endpoint_does_not_accumulate_overlapping_power_polls(self):
+        entity, projector, unregister = self.entity(None)
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def slow_query(prop):
+            entered.set()
+            await release.wait()
+            return "on"
+
+        projector.get_property.side_effect = slow_query
+        first = asyncio.create_task(entity.async_get_power())
+        await entered.wait()
+        await asyncio.gather(*[entity.async_get_power() for _ in range(10)])
+        self.assertEqual(projector.get_property.await_count, 1)
+        release.set()
+        self.assertEqual(await first, "on")
+        entity.unload()
+
+    async def test_additional_properties_are_not_polled_while_unavailable(self):
+        entity, projector, unregister = self.entity(ConnectionRefusedError())
+        entity._attr_state = "on"
+        entity._attr_available = False
+        entity._poll_properties = ["CMODE"]
+        entity.hass = SimpleNamespace(create_task=Mock())
+        entity.update_additional_attributes()
+        entity.hass.create_task.assert_not_called()
+        entity.unload()
+
 
 class OptionsTests(unittest.IsolatedAsyncioTestCase):
     def flow(self):
