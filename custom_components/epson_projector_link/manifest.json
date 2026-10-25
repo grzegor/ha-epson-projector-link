@@ -9,5 +9,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/grzegor/ha-epson-projector-link/issues",
   "requirements": ["pyserial_asyncio>=0.4", "async_timeout>=3.0.0"],
-  "version": "1.4.0"
+  "version": "1.4.1"
 }

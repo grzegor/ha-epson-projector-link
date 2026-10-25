@@ -5,11 +5,13 @@ import logging
 
 from homeassistant.const import STATE_ON
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.script import Script
+from homeassistant.helpers.script import async_validate_actions_config
 from homeassistant.helpers.storage import Store
 
 from .const import CONF_CONTROL_ACTION
@@ -52,13 +54,20 @@ class EpsonControls:
         self._hdr_task = None
         self._closed = False
         self._unsubscribe = projector.add_callback(self.update)
-        actions = entry.data.get(CONF_CONTROL_ACTION)
-        self._action = (
-            Script(hass, actions, f"{entry.title} control", DOMAIN) if actions else None
-        )
+        self._action = None
 
     async def async_load(self):
         """Restore manual HDR ownership before any projector reports arrive."""
+        actions = self.entry.data.get(CONF_CONTROL_ACTION)
+        if actions:
+            # Config-entry selectors store JSON, unlike YAML's validated actions.
+            # Compile templates before Script executes the configured sequence.
+            actions = await async_validate_actions_config(
+                self.hass, cv.SCRIPT_SCHEMA(actions)
+            )
+            self._action = Script(
+                self.hass, actions, f"{self.entry.title} control", DOMAIN
+            )
         data = await self._store.async_load()
         self.auto_hdr = (data or {}).get(
             "auto_hdr", bool(self.entry.data.get(CONF_HDR_AUTO_MODES))

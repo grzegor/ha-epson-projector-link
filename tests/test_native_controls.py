@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
@@ -9,6 +10,8 @@ from unittest.mock import Mock
 from unittest.mock import create_autospec
 from unittest.mock import patch
 
+from homeassistant.core import Context
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import EntityPlatform
 import test_serial_transport
 
@@ -73,6 +76,50 @@ class NativeControlTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(controls.HomeAssistantError):
             await self.hub.async_set("CMODE", "Game")
         self.projector.set_property.assert_not_awaited()
+
+    async def test_stored_action_templates_render_through_real_ha_script(self):
+        """Exercise selector JSON through HA, not a mocked Script.async_run."""
+        with tempfile.TemporaryDirectory() as config_dir:
+            hass = HomeAssistant(config_dir)
+            received = []
+
+            async def receive(call):
+                received.append(dict(call.data))
+
+            hass.services.async_register("test_receiver", "set", receive)
+            self.entry.data["control_action"] = [
+                {
+                    "action": "test_receiver.set",
+                    "data": {
+                        "capability_id": (
+                            "{{ {'CMODE': 'picture', 'BRIGHT': 'brightness',"
+                            " 'MUTE': 'blank'}[property] }}"
+                        ),
+                        "value": "{{ value }}",
+                    },
+                }
+            ]
+            self.entry.data["delegated_properties"] = ["MUTE", "BRIGHT", "CMODE"]
+            values = self.hub.values.copy()
+            self.hub.close()
+            with patch.object(controls, "Store", return_value=self.store):
+                self.hub = controls.EpsonControls(hass, self.entry, self.projector)
+            self.hub.notify = Mock()
+            self.hub.connected = True
+            self.hub.values = values
+            await self.hub.async_load()
+            self.hub.auto_hdr = False
+            for prop, value in [("MUTE", False), ("BRIGHT", 126), ("CMODE", "Cinema")]:
+                await self.hub.async_set(prop, value, Context())
+            self.assertEqual(
+                received,
+                [
+                    {"capability_id": "blank", "value": False},
+                    {"capability_id": "brightness", "value": 126},
+                    {"capability_id": "picture", "value": "Cinema"},
+                ],
+            )
+            self.projector.set_property.assert_not_awaited()
 
     async def test_pending_feedback_after_unload_cannot_start_new_policy_task(self):
         self.hub.close()
