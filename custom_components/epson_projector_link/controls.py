@@ -127,7 +127,12 @@ class EpsonControls:
                 if mode in self.entry.data.get(CONF_HDR_AUTO_MODES, [])
                 else "SDR"
             )
-            current = await self.projector.get_property("DYNRANGE")
+            # Reuse the current power session's reported value. Querying on
+            # every DYNRANGE report feeds its own reply back into update() and
+            # starts another query after this task completes.
+            current = self.values.get("DYNRANGE")
+            if current is None:
+                current = await self.projector.get_property("DYNRANGE")
             # A newer report or manual request can supersede the awaited query.
             if (
                 not self.auto_hdr

@@ -124,7 +124,9 @@ class Projector:
             self._host = host
             self._port = port
         self._connect_lock = asyncio.Lock()
+        self._request_lock = asyncio.Lock()
         self._is_open = False
+        self._closed = False
         self._has_errors = False
         self._serial = None
         self._callback = None
@@ -132,6 +134,7 @@ class Projector:
         self._power_state = None
         self._power_on_off_future = None
         self._request_queue = deque()
+        self._active_request = None
         self._tasks = set()
 
         self._reader = None
@@ -148,6 +151,8 @@ class Projector:
     async def connect(self):
         """Async init to open connection with projector."""
         async with self._connect_lock:
+            if self._closed:
+                raise ConnectionError("Projector connection is closed")
             if not self._is_open:
                 await self._open_connection()
 
@@ -192,22 +197,37 @@ class Projector:
             binascii.hexlify(response),
             len(response),
         )
+        if self._closed:
+            writer.close()
+            await writer.wait_closed()
+            raise ConnectionError("Projector connection is closed")
         self._is_open = True
         self._reader = reader
         self._writer = writer
-        self._create_task(self._listen())
+        self._create_task(self._listen(reader, writer))
         _LOGGER.info("connect: Connection opened")
         return
 
     def close(self):
-        if self._is_open:
-            # Must set _is_open to false before closing to prevent re-connect try in _listen()
-            self._is_open = False
-            self._writer.close()
+        """Stop this connection, including requests not yet sent."""
+        self._closed = True
+        self._disconnect(ConnectionError("Projector connection is closed"))
 
-            for request in self._request_queue:
-                request.future.cancel("Connection closed")
-            self._request_queue.clear()
+    def _disconnect(self, error):
+        """Discard a stream whose next reply can no longer be attributed safely."""
+        self._is_open = False
+        writer, self._writer = self._writer, None
+        self._reader = None
+        if writer is not None:
+            writer.close()
+        for request in self._request_queue:
+            if not request.future.done():
+                request.future.set_exception(error)
+                # The owner may itself have been cancelled before awaiting it.
+                request.future.exception()
+        self._request_queue.clear()
+        self._active_request = None
+        self._power_on_off_future = None
 
     async def get_property(self, prop):
         """Get property state from device."""
@@ -233,70 +253,56 @@ class Projector:
         """Send TCP request."""
         _LOGGER.debug('_send_request: command="%s"', request.command)
 
-        if self._is_open is False:
-            await self.connect()
-
         for r in self._request_queue:
             if r.command == request.command:
                 _LOGGER.debug(
                     '_send_request: command="%s" waiting on previous duplicate command',
                     request.command,
                 )
-                return await r.future
+                # Cancelling a duplicate caller must not cancel the shared wire
+                # transaction or the original caller's response future.
+                return await asyncio.shield(r.future)
 
         self._request_queue.append(request)
 
-        if len(self._request_queue) > 1:
-            _LOGGER.debug(
-                '_send_request: command="%s" waiting for %d queued futures',
-                request.command,
-                len(self._request_queue) - 1,
-            )
-            # Wait for previous request to finish, ignoring result
-            try:
-                await self._request_queue[-2].future
-            except Exception:
-                pass
-
-        # Wait if the projector is cooling down or warming up
-        if self._power_state == STATE_COOLDOWN or self._power_state == STATE_WARMUP:
-            if (
-                self._power_on_off_future is not None
-                and not self._power_on_off_future.done()
-            ):
-                try:
-                    _LOGGER.debug(
-                        '_send_request: command="%s" waiting for power state change future',
-                        request.command,
-                    )
-                    async with async_timeout.timeout(TIMEOUT_POWER_ON_OFF):
-                        await self._power_on_off_future
-                except asyncio.TimeoutError as err:
-                    _LOGGER.warning(
-                        '_send_request: command="%s" timeout waiting for _power_on_off_future',
-                        request.command,
-                    )
-                    if (
-                        self._power_on_off_future is not None
-                        and not self._power_on_off_future.done()
-                    ):
-                        self._power_on_off_future.set_exception(err)
-                except Exception:
-                    pass
-
         try:
-            is_power_request = request.command.startswith(PROPERTY_POWER + " ")
-            if is_power_request:
-                self._power_on_off_future = request.future
-            _LOGGER.debug(
-                '_send_request: command="%s" sending request',
-                request.command,
-            )
-            async with async_timeout.timeout(
-                TIMEOUT_POWER_ON_OFF if is_power_request else TIMEOUT_REQUEST
-            ):
-                self._writer.write(f"{request.command}\r".encode())
-                return await request.future
+            # A lock owns wire ordering independently of caller cancellation.
+            # Waiting on the previous request's future allowed its timeout to
+            # cancel the next owner and leave an unresolved request in the queue.
+            async with self._request_lock:
+                if request.future.done():
+                    return request.future.result()
+                if not self._is_open:
+                    await self.connect()
+
+                # Retain the network transport's warmup/cooldown guard.
+                if self._power_state in (STATE_COOLDOWN, STATE_WARMUP):
+                    transition = self._power_on_off_future
+                    if transition is not None and not transition.done():
+                        try:
+                            async with async_timeout.timeout(TIMEOUT_POWER_ON_OFF):
+                                await asyncio.shield(transition)
+                        except Exception:
+                            pass
+
+                self._active_request = request
+                is_power_request = request.command.startswith(PROPERTY_POWER + " ")
+                if is_power_request:
+                    self._power_on_off_future = request.future
+                _LOGGER.debug(
+                    '_send_request: command="%s" sending request', request.command
+                )
+                async with async_timeout.timeout(
+                    TIMEOUT_POWER_ON_OFF if is_power_request else TIMEOUT_REQUEST
+                ):
+                    self._writer.write(f"{request.command}\r".encode())
+                    return await asyncio.shield(request.future)
+        except asyncio.CancelledError:
+            if self._active_request is request:
+                self._disconnect(ConnectionError("Projector request was cancelled"))
+            if not request.future.done():
+                request.future.cancel()
+            raise
         except Exception as err:
             _LOGGER.exception(
                 '_send_request: command="%s" error=%s',
@@ -305,18 +311,23 @@ class Projector:
             )
             if not request.future.done():
                 request.future.set_exception(err)
+                request.future.exception()
+            if self._active_request is request:
+                self._disconnect(ConnectionError("Projector request failed"))
             raise
         finally:
             if request in self._request_queue:
                 self._request_queue.remove(request)
 
-    async def _listen(self):
+    async def _listen(self, reader, writer):
         _LOGGER.debug("_listen: Listening to connection")
 
-        while self._is_open:
+        while self._is_open and self._reader is reader:
             try:
-                response_bytes = await self._reader.readuntil(b":")
+                response_bytes = await reader.readuntil(b":")
             except Exception:
+                break
+            if self._reader is not reader:
                 break
             if len(response_bytes) == 0:
                 _LOGGER.info("_listen: End of file")
@@ -362,17 +373,17 @@ class Projector:
         _LOGGER.info("_listen: Connection ended")
         # A serial proxy may disconnect independently of the projector. Release
         # the previous stream before opening its replacement.
-        if self._writer is not None:
-            self._writer.close()
-            try:
-                await self._writer.wait_closed()
-            except OSError:
-                pass
+        writer.close()
+        try:
+            async with async_timeout.timeout(TIMEOUT_CONNECT):
+                await writer.wait_closed()
+        except (OSError, TimeoutError):
+            pass
 
         # Try to-reopen connection, if it was not an explicit close.
         # Explicit close will set _is_open to False.
-        if self._is_open:
-            self._is_open = False
+        if self._is_open and self._reader is reader:
+            self._disconnect(ConnectionError("Projector connection ended"))
             self._create_task(self.connect())
 
     def _handle_ack(self):
@@ -517,8 +528,11 @@ class Projector:
         task.add_done_callback(self._tasks.discard)
 
     def _pop_request(self):
-        if len(self._request_queue) > 0:
-            return self._request_queue.popleft()
+        request, self._active_request = self._active_request, None
+        if request is not None:
+            if request in self._request_queue:
+                self._request_queue.remove(request)
+            return request
 
         _LOGGER.error("_pop_request: Request queue is unexpectedly empty")
         return None
